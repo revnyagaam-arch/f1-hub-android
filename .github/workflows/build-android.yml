@@ -11,8 +11,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Android project
         uses: actions/checkout@v4
+        with:
+          path: app
+
+      - name: Checkout website
+        uses: actions/checkout@v4
+        with:
+          repository: revnyagaam-arch/f1-hub-russia
+          path: website
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -25,16 +33,27 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      - name: Copy full website
+        run: |
+          rm -rf app/www
+          mkdir -p app/www
+          cp -R website/. app/www/
+          rm -rf app/www/.git app/www/.github
+
       - name: Install dependencies
+        working-directory: app
         run: npm install
 
       - name: Add Android platform
+        working-directory: app
         run: npx cap add android
 
-      - name: Sync web files
+      - name: Sync website into Android
+        working-directory: app
         run: npx cap sync android
 
       - name: Build APK
+        working-directory: app
         run: |
           cd android
           chmod +x gradlew
@@ -44,4 +63,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: F1-Hub-Russia-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: app/android/app/build/outputs/apk/debug/app-debug.apk
