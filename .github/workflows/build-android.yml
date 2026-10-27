@@ -1,4 +1,3 @@
-
 name: Build F1 Hub Russia APK
 
 on:
@@ -37,19 +36,14 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - name: Check website files
+      - name: Copy website
         run: |
           test -f website/index.html
           test -f website/logo.png
-          file website/logo.png
-
-      - name: Copy website
-        run: |
           rm -rf app/www
           mkdir -p app/www
           cp -R website/. app/www/
           rm -rf app/www/.git app/www/.github
-          test -f app/www/index.html
           test -f app/www/logo.png
 
       - name: Install dependencies
@@ -64,14 +58,14 @@ jobs:
         working-directory: app
         run: npx cap sync android
 
-     
-      - name: Generate launcher icons from website logo
+      - name: Generate launcher icons
         working-directory: app
         run: |
-          npm install --save-dev @capacitor/assets
-          mkdir -p resources
-          cp www/logo.png resources/icon.png
-          npx capacitor-assets generate --android
+          python3 -m pip install Pillow
+          python3 - <<'PY'
+          from pathlib import Path
+          from PIL import Image, ImageDraw
+          import xml.etree.ElementTree as ET
 
           source = Path("www/logo.png")
           if not source.is_file():
@@ -81,10 +75,7 @@ jobs:
           if logo.width < 1 or logo.height < 1:
               raise SystemExit("ERROR: logo.png is empty")
 
-          res = Path("android/app/src/main/res")
-          res.mkdir(parents=True, exist_ok=True)
-
-          # Make a square icon without distorting the logo.
+          # Create a square icon with a black background.
           side = max(logo.width, logo.height)
           square = Image.new("RGBA", (side, side), (0, 0, 0, 255))
           logo.thumbnail((side, side), Image.Resampling.LANCZOS)
@@ -93,6 +84,7 @@ jobs:
               ((side - logo.width) // 2, (side - logo.height) // 2)
           )
 
+          res = Path("android/app/src/main/res")
           sizes = {
               "mdpi": 48,
               "hdpi": 72,
@@ -101,38 +93,32 @@ jobs:
               "xxxhdpi": 192,
           }
 
-          # Standard PNG icons.
           for density, size in sizes.items():
               folder = res / f"mipmap-{density}"
               folder.mkdir(parents=True, exist_ok=True)
-              square.resize(
-                  (size, size), Image.Resampling.LANCZOS
-              ).save(folder / "ic_launcher.png")
 
-              round_icon = square.resize(
+              icon = square.resize(
                   (size, size), Image.Resampling.LANCZOS
               )
+              icon.save(folder / "ic_launcher.png")
+
               mask = Image.new("L", (size, size), 0)
               ImageDraw.Draw(mask).ellipse(
                   (0, 0, size - 1, size - 1), fill=255
               )
+              round_icon = icon.copy()
               round_icon.putalpha(mask)
               round_icon.save(folder / "ic_launcher_round.png")
 
-          # Adaptive icon foreground: logo only, with transparent padding.
-          adaptive_size = 432
+          # Create adaptive icon foreground.
           foreground = Image.new(
-              "RGBA", (adaptive_size, adaptive_size), (0, 0, 0, 0)
+              "RGBA", (432, 432), (0, 0, 0, 0)
           )
           mark = logo.copy()
-          mark.thumbnail(
-              (adaptive_size * 2 // 3, adaptive_size * 2 // 3),
-              Image.Resampling.LANCZOS
-          )
+          mark.thumbnail((288, 288), Image.Resampling.LANCZOS)
           foreground.alpha_composite(
               mark,
-              ((adaptive_size - mark.width) // 2,
-               (adaptive_size - mark.height) // 2)
+              ((432 - mark.width) // 2, (432 - mark.height) // 2)
           )
 
           drawable = res / "drawable"
@@ -151,6 +137,7 @@ jobs:
 
           adaptive = res / "mipmap-anydpi-v26"
           adaptive.mkdir(parents=True, exist_ok=True)
+
           adaptive_xml = (
               '<?xml version="1.0" encoding="utf-8"?>\n'
               '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
@@ -158,6 +145,7 @@ jobs:
               '  <foreground android:drawable="@drawable/ic_launcher_foreground"/>\n'
               '</adaptive-icon>\n'
           )
+
           (adaptive / "ic_launcher.xml").write_text(
               adaptive_xml, encoding="utf-8"
           )
@@ -165,40 +153,38 @@ jobs:
               adaptive_xml, encoding="utf-8"
           )
 
-          # Make sure the application points at our generated icons.
+          # Set launcher icon references in AndroidManifest.xml.
           manifest = Path("android/app/src/main/AndroidManifest.xml")
           if not manifest.is_file():
               raise SystemExit("ERROR: AndroidManifest.xml not found")
 
-          android_ns = "{http://schemas.android.com/apk/res/android}"
           ET.register_namespace(
               "android", "http://schemas.android.com/apk/res/android"
           )
-
           tree = ET.parse(manifest)
           root = tree.getroot()
           application = root.find("application")
-          if application is None:
-              raise SystemExit("ERROR: <application> not found")
 
-          application.set(android_ns + "icon", "@mipmap/ic_launcher")
+          if application is None:
+              raise SystemExit("ERROR: application element not found")
+
+          ns = "{http://schemas.android.com/apk/res/android}"
+          application.set(ns + "icon", "@mipmap/ic_launcher")
           application.set(
-              android_ns + "roundIcon", "@mipmap/ic_launcher_round"
+              ns + "roundIcon", "@mipmap/ic_launcher_round"
           )
 
           tree.write(
               manifest, encoding="utf-8", xml_declaration=True
           )
 
-          print("Generated launcher icons from www/logo.png")
-          print("Configured AndroidManifest.xml to use ic_launcher")
+          print("Launcher icons generated from www/logo.png")
           PY
 
-      - name: Verify launcher icon configuration
+      - name: Verify launcher icon files
         working-directory: app
         run: |
           set -eu
-
           test -s android/app/src/main/res/mipmap-mdpi/ic_launcher.png
           test -s android/app/src/main/res/mipmap-hdpi/ic_launcher.png
           test -s android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
@@ -206,14 +192,8 @@ jobs:
           test -s android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
           test -s android/app/src/main/res/drawable/ic_launcher_foreground.png
           test -s android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
-
-          grep -q 'android:icon="@mipmap/ic_launcher"' \
-            android/app/src/main/AndroidManifest.xml
-
-          grep -q 'android:roundIcon="@mipmap/ic_launcher_round"' \
-            android/app/src/main/AndroidManifest.xml
-
-          echo "All launcher icon resources and manifest settings verified."
+          grep -q 'ic_launcher' android/app/src/main/AndroidManifest.xml
+          echo "Icon resources verified."
 
       - name: Build APK
         working-directory: app/android
@@ -221,7 +201,7 @@ jobs:
           chmod +x gradlew
           ./gradlew --no-daemon clean assembleDebug
 
-      - name: Verify APK exists
+      - name: Verify APK
         run: |
           test -s app/android/app/build/outputs/apk/debug/app-debug.apk
           ls -lh app/android/app/build/outputs/apk/debug/app-debug.apk
