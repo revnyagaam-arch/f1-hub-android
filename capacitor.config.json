@@ -1,0 +1,8 @@
+{
+  "appId": "ru.f1hub.russia",
+  "appName": "F1 Hub Russia",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  }
+}
