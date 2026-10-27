@@ -58,7 +58,8 @@ jobs:
         working-directory: app
         run: npx cap sync android
 
-      - name: Generate launcher icons
+     
+      - name: Generate app launcher icon
         working-directory: app
         run: |
           python3 -m pip install Pillow
@@ -67,22 +68,55 @@ jobs:
           from PIL import Image, ImageDraw
           import xml.etree.ElementTree as ET
 
+          res = Path("android/app/src/main/res")
           source = Path("www/logo.png")
-          if not source.is_file():
+
+          if not source.exists():
               raise SystemExit("ERROR: www/logo.png not found")
 
           logo = Image.open(source).convert("RGBA")
-          if logo.width < 1 or logo.height < 1:
-              raise SystemExit("ERROR: logo.png is empty")
+          logo.thumbnail((192, 192), Image.Resampling.LANCZOS)
 
-          # Create a square icon with a black background.
-          side = max(logo.width, logo.height)
-          square = Image.new("RGBA", (side, side), (0, 0, 0, 255))
-          logo.thumbnail((side, side), Image.Resampling.LANCZOS)
-          square.alpha_composite(
+          # Make a square launcher icon with a black background.
+          icon = Image.new("RGBA", (192, 192), (0, 0, 0, 255))
+          icon.alpha_composite(
               logo,
-              ((side - logo.width) // 2, (side - logo.height) // 2)
+              ((192 - logo.width) // 2, (192 - logo.height) // 2)
           )
+
+          for density, size in {
+              "mdpi": 48,
+              "hdpi": 72,
+              "xhdpi": 96,
+              "xxhdpi": 144,
+              "xxxhdpi": 192,
+          }.items():
+              folder = res / f"mipmap-{density}"
+              folder.mkdir(parents=True, exist_ok=True)
+              icon.resize((size, size), Image.Resampling.LANCZOS).save(
+                  folder / "ic_launcher.png"
+              )
+              icon.resize((size, size), Image.Resampling.LANCZOS).save(
+                  folder / "ic_launcher_round.png"
+              )
+
+          # Use PNG resources directly in the manifest.
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          ET.register_namespace("android", "http://schemas.android.com/apk/res/android")
+          tree = ET.parse(manifest)
+          app = tree.getroot().find("application")
+
+          if app is None:
+              raise SystemExit("ERROR: application not found")
+
+          ns = "{http://schemas.android.com/apk/res/android}"
+          app.set(ns + "icon", "@mipmap/ic_launcher")
+          app.set(ns + "roundIcon", "@mipmap/ic_launcher_round")
+          tree.write(manifest, encoding="utf-8", xml_declaration=True)
+
+          print("App launcher icon configured.")
+          PY
+
 
           res = Path("android/app/src/main/res")
           sizes = {
