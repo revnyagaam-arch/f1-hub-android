@@ -64,14 +64,14 @@ jobs:
         working-directory: app
         run: npx cap sync android
 
+     
       - name: Generate launcher icons from website logo
         working-directory: app
         run: |
-          python3 -m pip install Pillow
-          python3 - <<'PY'
-          from pathlib import Path
-          from PIL import Image, ImageDraw
-          import xml.etree.ElementTree as ET
+          npm install --save-dev @capacitor/assets
+          mkdir -p resources
+          cp www/logo.png resources/icon.png
+          npx capacitor-assets generate --android
 
           source = Path("www/logo.png")
           if not source.is_file():
